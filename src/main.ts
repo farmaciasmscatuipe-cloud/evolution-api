@@ -34,6 +34,7 @@ async function bootstrap() {
   const logger = new Logger('SERVER');
   const app = express();
 
+  // Provider (arquivos/sessões)
   let providerFiles: ProviderFiles = null;
   if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
     providerFiles = new ProviderFiles(configService);
@@ -41,19 +42,17 @@ async function bootstrap() {
     logger.info('Provider:Files - ON');
   }
 
+  // Prisma
   const prismaRepository = new PrismaRepository(configService);
   await prismaRepository.onModuleInit();
 
+  // Middlewares
   app.use(
     cors({
       origin(requestOrigin, callback) {
         const { ORIGIN } = configService.get<Cors>('CORS');
-        if (ORIGIN.includes('*')) {
-          return callback(null, true);
-        }
-        if (ORIGIN.indexOf(requestOrigin) !== -1) {
-          return callback(null, true);
-        }
+        if (ORIGIN.includes('*')) return callback(null, true);
+        if (ORIGIN.indexOf(requestOrigin) !== -1) return callback(null, true);
         return callback(new Error('Not allowed by CORS'));
       },
       methods: [...configService.get<Cors>('CORS').METHODS],
@@ -64,23 +63,34 @@ async function bootstrap() {
     compression(),
   );
 
+  // Views e estáticos
   app.set('view engine', 'hbs');
   app.set('views', join(ROOT_DIR, 'views'));
   app.use(express.static(join(ROOT_DIR, 'public')));
-
   app.use('/store', express.static(join(ROOT_DIR, 'store')));
 
+  // Healthcheck (ESSENCIAL pro Render)
+  app.get('/health', (req: Request, res: Response) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
+  // Rotas
   app.use('/', router);
 
+  // Tratamento de erros
   app.use(
-    (err: Error, req: Request, res: Response, next: NextFunction) => {
+    async (err: Error, req: Request, res: Response, next: NextFunction) => {
       if (err) {
         const webhook = configService.get<Webhook>('WEBHOOK');
 
-        if (webhook.EVENTS.ERRORS_WEBHOOK && webhook.EVENTS.ERRORS_WEBHOOK != '' && webhook.EVENTS.ERRORS) {
-          const tzoffset = new Date().getTimezoneOffset() * 60000; //offset in milliseconds
-          const localISOTime = new Date(Date.now() - tzoffset).toISOString();
-          const now = localISOTime;
+        if (
+          webhook.EVENTS.ERRORS_WEBHOOK &&
+          webhook.EVENTS.ERRORS_WEBHOOK !== '' &&
+          webhook.EVENTS.ERRORS
+        ) {
+          const tzoffset = new Date().getTimezoneOffset() * 60000;
+          const now = new Date(Date.now() - tzoffset).toISOString();
+
           const globalApiKey = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
           const serverUrl = configService.get<HttpServer>('SERVER').URL;
 
@@ -101,10 +111,15 @@ async function bootstrap() {
 
           logger.error(errorData);
 
-          const baseURL = webhook.EVENTS.ERRORS_WEBHOOK;
-          const httpService = axios.create({ baseURL });
-
-          httpService.post('', errorData);
+          try {
+            const httpService = axios.create({
+              baseURL: webhook.EVENTS.ERRORS_WEBHOOK,
+              timeout: 5000,
+            });
+            await httpService.post('', errorData);
+          } catch (e) {
+            logger.warn('Erro ao enviar webhook de erro');
+          }
         }
 
         return res.status(err['status'] || 500).json({
@@ -118,7 +133,7 @@ async function bootstrap() {
 
       next();
     },
-    (req: Request, res: Response, next: NextFunction) => {
+    (req: Request, res: Response) => {
       const { method, url } = req;
 
       res.status(HttpStatus.NOT_FOUND).json({
@@ -128,39 +143,47 @@ async function bootstrap() {
           message: [`Cannot ${method.toUpperCase()} ${url}`],
         },
       });
-
-      next();
     },
   );
 
+  // Config servidor
   const httpServer = configService.get<HttpServer>('SERVER');
 
   ServerUP.app = app;
   let server = ServerUP[httpServer.TYPE];
 
-  if (server === null) {
-    logger.warn('SSL cert load failed — falling back to HTTP.');
-    logger.info("Ensure 'SSL_CONF_PRIVKEY' and 'SSL_CONF_FULLCHAIN' env vars point to valid certificate files.");
-
+  if (!server) {
+    logger.warn('SSL falhou — usando HTTP');
     httpServer.TYPE = 'http';
     server = ServerUP[httpServer.TYPE];
   }
 
   eventManager.init(server);
 
+  // Sentry
   const sentryConfig = configService.get<SentryConfig>('SENTRY');
   if (sentryConfig.DSN) {
     logger.info('Sentry - ON');
-
-    // Add this after all routes,
-    // but before any and other error-handling middlewares are defined
     Sentry.setupExpressErrorHandler(app);
   }
 
-  const port = process.env.PORT ? Number(process.env.PORT) : httpServer.PORT || 3000;
+  // 🚀 PORTA COMPATÍVEL COM RENDER
+  const port = Number(process.env.PORT) || httpServer.PORT || 3000;
 
-  server.listen(port, '0.0.0.0', () => {
-    logger.log(httpServer.TYPE.toUpperCase() + ' - ON: ' + port);
+  // 🔥 GARANTE DETECÇÃO DE PORTA PELO RENDER
+  if (httpServer.TYPE === 'https' && server) {
+    server.listen(port, '0.0.0.0', () => {
+      logger.log('HTTPS - ON: ' + port);
+    });
+  } else {
+    app.listen(port, '0.0.0.0', () => {
+      logger.log('HTTP - ON: ' + port);
+    });
+  }
+
+  // Inicializa WhatsApp
+  initWA().catch((error) => {
+    logger.error('Error loading instances: ' + error);
   });
 
   onUnexpectedError();
