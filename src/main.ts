@@ -1,7 +1,7 @@
 // Import this first from sentry instrument!
 import '@utils/instrumentSentry';
 
-// Now import other modules
+// Modules
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { HttpStatus, router } from '@api/routes/index.router';
@@ -18,8 +18,8 @@ import {
 import { onUnexpectedError } from '@config/error.config';
 import { Logger } from '@config/logger.config';
 import { ROOT_DIR } from '@config/path.config';
+
 import * as Sentry from '@sentry/node';
-import { ServerUP } from '@utils/server-up';
 import axios from 'axios';
 import compression from 'compression';
 import cors from 'cors';
@@ -34,8 +34,8 @@ async function bootstrap() {
   const logger = new Logger('SERVER');
   const app = express();
 
-  // Provider (arquivos/sessões)
-  let providerFiles: ProviderFiles = null;
+  // Provider
+  let providerFiles: ProviderFiles | null = null;
   if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
     providerFiles = new ProviderFiles(configService);
     await providerFiles.onModuleInit();
@@ -63,13 +63,13 @@ async function bootstrap() {
     compression(),
   );
 
-  // Views e estáticos
+  // Views e arquivos estáticos
   app.set('view engine', 'hbs');
   app.set('views', join(ROOT_DIR, 'views'));
   app.use(express.static(join(ROOT_DIR, 'public')));
   app.use('/store', express.static(join(ROOT_DIR, 'store')));
 
-  // Healthcheck (ESSENCIAL pro Render)
+  // ✅ Healthcheck (Render)
   app.get('/health', (req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
   });
@@ -117,7 +117,7 @@ async function bootstrap() {
               timeout: 5000,
             });
             await httpService.post('', errorData);
-          } catch (e) {
+          } catch {
             logger.warn('Erro ao enviar webhook de erro');
           }
         }
@@ -146,20 +146,6 @@ async function bootstrap() {
     },
   );
 
-  // Config servidor
-  const httpServer = configService.get<HttpServer>('SERVER');
-
-  ServerUP.app = app;
-  let server = ServerUP[httpServer.TYPE];
-
-  if (!server) {
-    logger.warn('SSL falhou — usando HTTP');
-    httpServer.TYPE = 'http';
-    server = ServerUP[httpServer.TYPE];
-  }
-
-  eventManager.init(server);
-
   // Sentry
   const sentryConfig = configService.get<SentryConfig>('SENTRY');
   if (sentryConfig.DSN) {
@@ -167,25 +153,23 @@ async function bootstrap() {
     Sentry.setupExpressErrorHandler(app);
   }
 
-  // 🚀 PORTA COMPATÍVEL COM RENDER
+  // 🚀 PORTA (Render)
+  const httpServer = configService.get<HttpServer>('SERVER');
   const port = Number(process.env.PORT) || httpServer.PORT || 3000;
 
-  // 🔥 GARANTE DETECÇÃO DE PORTA PELO RENDER
-  if (httpServer.TYPE === 'https' && server) {
-    server.listen(port, '0.0.0.0', () => {
-      logger.log('HTTPS - ON: ' + port);
-    });
-  } else {
-    app.listen(port, '0.0.0.0', () => {
-      logger.log('HTTP - ON: ' + port);
-    });
-  }
+  const server = app.listen(port, '0.0.0.0', () => {
+    logger.log('HTTP - ON: ' + port);
+  });
 
-  // Inicializa WhatsApp
+  // Eventos internos
+  eventManager.init(server);
+
+  // WhatsApp
   initWA().catch((error) => {
     logger.error('Error loading instances: ' + error);
   });
 
+  // Erros globais
   onUnexpectedError();
 }
 
