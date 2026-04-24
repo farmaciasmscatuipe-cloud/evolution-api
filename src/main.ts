@@ -26,25 +26,12 @@ import cors from 'cors';
 import express, { json, NextFunction, Request, Response, urlencoded } from 'express';
 import { join } from 'path';
 
-async function initWA() {
-  await waMonitor.loadInstance();
-}
-
 async function bootstrap() {
+  console.log('🔥 INICIANDO SERVIDOR...');
+  console.log('PORT ENV:', process.env.PORT);
+
   const logger = new Logger('SERVER');
   const app = express();
-
-  // Provider
-  let providerFiles: ProviderFiles | null = null;
-  if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
-    providerFiles = new ProviderFiles(configService);
-    await providerFiles.onModuleInit();
-    logger.info('Provider:Files - ON');
-  }
-
-  // Prisma
-  const prismaRepository = new PrismaRepository(configService);
-  await prismaRepository.onModuleInit();
 
   // Middlewares
   app.use(
@@ -63,13 +50,13 @@ async function bootstrap() {
     compression(),
   );
 
-  // Views e arquivos estáticos
+  // Views e arquivos
   app.set('view engine', 'hbs');
   app.set('views', join(ROOT_DIR, 'views'));
   app.use(express.static(join(ROOT_DIR, 'public')));
   app.use('/store', express.static(join(ROOT_DIR, 'store')));
 
-  // ✅ Healthcheck (Render)
+  // ✅ Healthcheck
   app.get('/health', (req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
   });
@@ -77,7 +64,7 @@ async function bootstrap() {
   // Rotas
   app.use('/', router);
 
-  // Tratamento de erros
+  // Erros
   app.use(
     async (err: Error, req: Request, res: Response, next: NextFunction) => {
       if (err) {
@@ -88,8 +75,7 @@ async function bootstrap() {
           webhook.EVENTS.ERRORS_WEBHOOK !== '' &&
           webhook.EVENTS.ERRORS
         ) {
-          const tzoffset = new Date().getTimezoneOffset() * 60000;
-          const now = new Date(Date.now() - tzoffset).toISOString();
+          const now = new Date().toISOString();
 
           const globalApiKey = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
           const serverUrl = configService.get<HttpServer>('SERVER').URL;
@@ -100,9 +86,6 @@ async function bootstrap() {
               error: err['error'] || 'Internal Server Error',
               message: err['message'] || 'Internal Server Error',
               status: err['status'] || 500,
-              response: {
-                message: err['message'] || 'Internal Server Error',
-              },
             },
             date_time: now,
             api_key: globalApiKey,
@@ -112,13 +95,9 @@ async function bootstrap() {
           logger.error(errorData);
 
           try {
-            const httpService = axios.create({
-              baseURL: webhook.EVENTS.ERRORS_WEBHOOK,
-              timeout: 5000,
-            });
-            await httpService.post('', errorData);
+            await axios.post(webhook.EVENTS.ERRORS_WEBHOOK, errorData);
           } catch {
-            logger.warn('Erro ao enviar webhook de erro');
+            logger.warn('Erro ao enviar webhook');
           }
         }
 
@@ -134,13 +113,11 @@ async function bootstrap() {
       next();
     },
     (req: Request, res: Response) => {
-      const { method, url } = req;
-
       res.status(HttpStatus.NOT_FOUND).json({
         status: HttpStatus.NOT_FOUND,
         error: 'Not Found',
         response: {
-          message: [`Cannot ${method.toUpperCase()} ${url}`],
+          message: [`Cannot ${req.method.toUpperCase()} ${req.url}`],
         },
       });
     },
@@ -153,23 +130,48 @@ async function bootstrap() {
     Sentry.setupExpressErrorHandler(app);
   }
 
-  // 🚀 PORTA (Render)
+  // 🚀 PORTA
   const httpServer = configService.get<HttpServer>('SERVER');
   const port = Number(process.env.PORT) || httpServer.PORT || 3000;
 
   const server = app.listen(port, '0.0.0.0', () => {
+    console.log('✅ SERVER LISTENING ON PORT:', port);
     logger.log('HTTP - ON: ' + port);
   });
 
-  // Eventos internos
   eventManager.init(server);
 
-  // WhatsApp
-  initWA().catch((error) => {
-    logger.error('Error loading instances: ' + error);
+  // 🔎 Inicializações NÃO BLOQUEANTES
+  setImmediate(async () => {
+    try {
+      console.log('🔄 Inicializando Prisma...');
+      const prismaRepository = new PrismaRepository(configService);
+      await prismaRepository.onModuleInit();
+      console.log('✅ Prisma OK');
+    } catch (e) {
+      console.error('❌ Prisma falhou:', e);
+    }
+
+    try {
+      console.log('🔄 Inicializando Provider...');
+      if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
+        const providerFiles = new ProviderFiles(configService);
+        await providerFiles.onModuleInit();
+        console.log('✅ Provider OK');
+      }
+    } catch (e) {
+      console.error('❌ Provider falhou:', e);
+    }
+
+    try {
+      console.log('🔄 Inicializando WA...');
+      await waMonitor.loadInstance();
+      console.log('✅ WA OK');
+    } catch (e) {
+      console.error('❌ WA falhou:', e);
+    }
   });
 
-  // Erros globais
   onUnexpectedError();
 }
 
