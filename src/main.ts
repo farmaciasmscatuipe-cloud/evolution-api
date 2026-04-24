@@ -157,10 +157,10 @@ async function bootstrap() {
     Sentry.setupExpressErrorHandler(app);
   }
 
-  server.listen(httpServer.PORT, () => logger.log(httpServer.TYPE.toUpperCase() + ' - ON: ' + httpServer.PORT));
+  const port = process.env.PORT ? Number(process.env.PORT) : httpServer.PORT || 3000;
 
-  initWA().catch((error) => {
-    logger.error('Error loading instances: ' + error);
+  server.listen(port, '0.0.0.0', () => {
+    logger.log(httpServer.TYPE.toUpperCase() + ' - ON: ' + port);
   });
 
   onUnexpectedError();
