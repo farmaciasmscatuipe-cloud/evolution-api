@@ -742,47 +742,52 @@ model N8nSetting {
 }
 
 model Evoai {
-  id              String        @id @default(cuid())
-  enabled         Boolean       @default(true) @db.Boolean
-  description     String?       @db.VarChar(255)
-  agentUrl        String?       @db.VarChar(255)
-  apiKey          String?       @db.VarChar(255)
-  expire          Int?          @default(0) @db.Integer
-  keywordFinish   String?       @db.VarChar(100)
-  delayMessage    Int?          @db.Integer
-  unknownMessage  String?       @db.VarChar(100)
-  listeningFromMe Boolean?      @default(false) @db.Boolean
-  stopBotFromMe   Boolean?      @default(false) @db.Boolean
-  keepOpen        Boolean?      @default(false) @db.Boolean
-  debounceTime    Int?          @db.Integer
-  ignoreJids      Json?
-  splitMessages   Boolean?      @default(false) @db.Boolean
-  timePerChar     Int?          @default(50) @db.Integer
+  id              String           @id @default(cuid())
+  enabled         Boolean          @default(true) @db.Boolean
+  description     String?          @db.VarChar(255)
+  agentUrl        String?          @db.VarChar(255)
+  apiKey          String?          @db.VarChar(255)
+  expire          Int?             @default(0) @db.Integer
+  keywordFinish   String?          @db.VarChar(100)
+  delayMessage    Int?             @db.Integer
+  unknownMessage  String?          @db.VarChar(100)
+  listeningFromMe Boolean?         @default(false) @db.Boolean
+  stopBotFromMe   Boolean?         @default(false) @db.Boolean
+  keepOpen        Boolean?         @default(false) @db.Boolean
+  debounceTime    Int?             @db.Integer
+  splitMessages   Boolean?         @default(false) @db.Boolean
+  timePerChar     Int?             @default(50) @db.Integer
   triggerType     TriggerType?
   triggerOperator TriggerOperator?
   triggerValue    String?
-  createdAt       DateTime?     @default(now()) @db.Timestamp
-  updatedAt       DateTime      @updatedAt @db.Timestamp
+  createdAt       DateTime?        @default(now()) @db.Timestamp
+  updatedAt       DateTime         @updatedAt @db.Timestamp
   instanceId      String
-  Instance        Instance      @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  EvoaiSetting    EvoaiSetting?
+  Instance        Instance         @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  
+  // Relação corrigida indicando os campos locais e de referência
+  evoaiSettingId  String?          @unique
+  EvoaiSetting    EvoaiSetting?    @relation(fields: [evoaiSettingId], references: [id])
 }
 
 model EvoaiSetting {
-  id             String    @id @default(cuid())
-  expire         Int?      @default(0) @db.Integer
-  keywordFinish  String?   @db.VarChar(100)
-  delayMessage   Int?      @db.Integer
-  unknownMessage String?   @db.VarChar(100)
-  listeningFromMe Boolean? @default(false) @db.Boolean
-  stopBotFromMe  Boolean?  @default(false) @db.Boolean
-  keepOpen       Boolean?  @default(false) @db.Boolean
-  debounceTime   Int?      @db.Integer
-  ignoreJids     Json?
-  splitMessages  Boolean?  @default(false) @db.Boolean
-  timePerChar    Int?      @default(50) @db.Integer
-  createdAt      DateTime? @default(now()) @db.Timestamp
-  updatedAt      DateTime  @updatedAt @db.Timestamp
-  instanceId     String    @unique
-  Instance       Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  expire          Int?      @default(0) @db.Integer
+  keywordFinish   String?   @db.VarChar(100)
+  delayMessage    Int?      @db.Integer
+  unknownMessage  String?   @db.VarChar(100)
+  listeningFromMe Boolean?  @default(false) @db.Boolean
+  stopBotFromMe   Boolean?  @default(false) @db.Boolean
+  keepOpen        Boolean?  @default(false) @db.Boolean
+  debounceTime    Int?      @db.Integer
+  ignoreJids      Json?
+  splitMessages   Boolean?  @default(false) @db.Boolean
+  timePerChar     Int?      @default(50) @db.Integer
+  createdAt       DateTime? @default(now()) @db.Timestamp
+  updatedAt       DateTime  @updatedAt @db.Timestamp
+  instanceId      String    @unique
+  Instance        Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  
+  // Campo espelho que estava faltando para o Prisma validar a relação 1:1
+  Evoai           Evoai?
 }
